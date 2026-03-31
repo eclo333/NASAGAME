@@ -9,7 +9,7 @@ const spaceFacts = [
   'The footprints left by Apollo astronauts on the Moon will last for millions of years.',
   'One million Earths could fit inside the Sun.',
   'The Milky Way galaxy is about 100,000 light-years across.',
-  'There are more stars in the universe than grains of sand on all of Earth\'s beaches.',
+  'There are more stars in the universe than grains of sand on all Earth\'s beaches.',
   'Space is completely silent — there is no atmosphere for sound to travel through.',
   'The largest known star, UY Scuti, is about 1,700 times bigger than our Sun.',
   'A teaspoon of neutron star material would weigh about 10 million tons.',
@@ -23,26 +23,65 @@ const randomFact = spaceFacts[Math.floor(Math.random() * spaceFacts.length)];
 document.getElementById('fact-text').textContent = randomFact;
 
 // ── Element References ────────────────────────────────────────────────────────
-const fetchBtn        = document.getElementById('fetchBtn');
-const gallery         = document.getElementById('gallery');
-const modal           = document.getElementById('modal');
-const modalClose      = document.getElementById('modalClose');
-const modalImage      = document.getElementById('modalImage');
-const modalVideo      = document.getElementById('modalVideo');
-const modalTitle      = document.getElementById('modalTitle');
-const modalDate       = document.getElementById('modalDate');
+const fetchBtn         = document.getElementById('fetchBtn');
+const gallery          = document.getElementById('gallery');
+const modal            = document.getElementById('modal');
+const modalClose       = document.getElementById('modalClose');
+const modalImage       = document.getElementById('modalImage');
+const modalVideo       = document.getElementById('modalVideo');
+const modalTitle       = document.getElementById('modalTitle');
+const modalDate        = document.getElementById('modalDate');
 const modalExplanation = document.getElementById('modalExplanation');
 
 // ── Date Inputs ───────────────────────────────────────────────────────────────
-// Find the date picker inputs on the page
 const startInput = document.getElementById('startDate');
 const endInput   = document.getElementById('endDate');
 
-// Call setupDateInputs from dateRange.js to set min/max and default values
+// Set up date pickers via dateRange.js (sets min/max and default 9-day range)
 setupDateInputs(startInput, endInput);
 
+// ── Pre-fetch Cache ───────────────────────────────────────────────────────────
+// When the user changes the start date, kick off a background fetch immediately.
+// If they then click "Get Space Images" for the same dates, we reuse that result
+// instead of waiting for a new request — making the UI feel instant.
+const prefetchCache = {};
+
+startInput.addEventListener('change', () => {
+  // Wait one tick for dateRange.js to auto-update endDate, then pre-fetch
+  setTimeout(() => {
+    const start = startInput.value;
+    const end   = endInput.value;
+    if (!start || !end) return;
+
+    const cacheKey = `${start}_${end}`;
+    if (prefetchCache[cacheKey]) return; // already cached, skip
+
+    // Start the fetch now but don't await it — store the Promise
+    const url = `https://api.nasa.gov/planetary/apod?api_key=${API_KEY}&start_date=${start}&end_date=${end}`;
+    prefetchCache[cacheKey] = fetch(url)
+      .then(res => res.json())
+      .catch(() => null); // silently discard pre-fetch errors
+  }, 50);
+});
+
+// ── Skeleton Loading Helpers ──────────────────────────────────────────────────
+// Build one skeleton card that mimics a real gallery card's shape
+function createSkeletonCard() {
+  return `
+    <div class="skeleton-card">
+      <div class="skeleton-img"></div>
+      <div class="skeleton-text"></div>
+      <div class="skeleton-text short"></div>
+    </div>
+  `;
+}
+
+// Show N shimmer skeleton cards while the API request is in-flight
+function showSkeletons(count = 9) {
+  gallery.innerHTML = Array(count).fill(createSkeletonCard()).join('');
+}
+
 // ── Fetch Space Images ────────────────────────────────────────────────────────
-// When the button is clicked, fetch images from the NASA APOD API
 fetchBtn.addEventListener('click', fetchSpaceImages);
 
 async function fetchSpaceImages() {
@@ -55,32 +94,39 @@ async function fetchSpaceImages() {
     return;
   }
 
-  // Show a loading message while we wait for the API to respond
-  gallery.innerHTML = '<p class="loading-message">🔄 Loading space photos…</p>';
+  // Show shimmer skeleton cards while we wait for the API
+  showSkeletons(9);
 
-  // Build the NASA APOD API URL with the date range and our API key
+  const cacheKey = `${startDate}_${endDate}`;
   const url = `https://api.nasa.gov/planetary/apod?api_key=${API_KEY}&start_date=${startDate}&end_date=${endDate}`;
 
   try {
-    // Send the request to the NASA API and wait for the response
-    const response = await fetch(url);
-    const data = await response.json();
+    // Use the pre-fetched result if available, otherwise start a fresh request
+    const data = await (prefetchCache[cacheKey] || fetch(url).then(res => res.json()));
 
-    // Build the gallery from the data we received
-    displayGallery(data);
+    // Remove the used cache entry so stale data isn't reused on the next click
+    delete prefetchCache[cacheKey];
+
+    // ── View Transitions API ─────────────────────────────────────────────────
+    // If the browser supports it, wrap the gallery update in a smooth animated
+    // transition. The CSS ::view-transition-old/new rules control the animation.
+    if (document.startViewTransition) {
+      document.startViewTransition(() => displayGallery(data));
+    } else {
+      displayGallery(data);
+    }
   } catch (error) {
-    // If something went wrong, show an error message to the user
-    gallery.innerHTML = '<p class="error-message">❌ Something went wrong. Please try again.</p>';
+    gallery.innerHTML = '<p class="error-message">Something went wrong. Please try again.</p>';
     console.error('Error fetching NASA APOD data:', error);
   }
 }
 
-// ── Display Gallery ──────────────────────────────────────────────────────────
+// ── Display Gallery ───────────────────────────────────────────────────────────
 function displayGallery(items) {
-  // Clear out any previous gallery content
+  // Clear skeletons / previous results
   gallery.innerHTML = '';
 
-  // The API returns a single object when only one result is found — wrap it in an array
+  // The API returns a single object when only one date matches — normalise to array
   if (!Array.isArray(items)) {
     items = [items];
   }
@@ -91,7 +137,7 @@ function displayGallery(items) {
     card.classList.add('gallery-item');
 
     if (item.media_type === 'video') {
-      // For video entries, show a play icon thumbnail
+      // Video entries get a play-icon thumbnail
       card.innerHTML = `
         <div class="video-thumb">
           <span class="video-icon">▶️</span>
@@ -101,7 +147,7 @@ function displayGallery(items) {
         <p>${item.date}</p>
       `;
     } else {
-      // For image entries, display the photo with title and date
+      // Photo entries show the image with title and date
       card.innerHTML = `
         <img src="${item.url}" alt="${item.title}" loading="lazy" />
         <p><strong>${item.title}</strong></p>
@@ -116,42 +162,37 @@ function displayGallery(items) {
 }
 
 // ── YouTube URL Helper ────────────────────────────────────────────────────────
-// Converts a regular YouTube URL into an embeddable URL for the iframe
+// Converts a regular YouTube URL into an embeddable /embed/ URL for iframes
 function getYouTubeEmbedUrl(url) {
-  // Handle: youtube.com/watch?v=VIDEO_ID
   const watchMatch = url.match(/youtube\.com\/watch\?v=([^&]+)/);
   if (watchMatch) return `https://www.youtube.com/embed/${watchMatch[1]}`;
 
-  // Handle: youtu.be/VIDEO_ID
   const shortMatch = url.match(/youtu\.be\/([^?]+)/);
   if (shortMatch) return `https://www.youtube.com/embed/${shortMatch[1]}`;
 
-  // Return as-is if it's already an embed URL or another format
-  return url;
+  return url; // already an embed URL or unknown format
 }
 
 // ── Modal ─────────────────────────────────────────────────────────────────────
-// Opens the modal and fills it with the selected item's details
 function openModal(item) {
   modalTitle.textContent       = item.title;
   modalDate.textContent        = item.date;
   modalExplanation.textContent = item.explanation;
 
   if (item.media_type === 'video') {
-    // Hide the image element and show the video container
     modalImage.classList.add('hidden');
     modalVideo.classList.remove('hidden');
 
     if (item.url.includes('youtube.com') || item.url.includes('youtu.be')) {
       // Embed YouTube videos directly in the modal
       const embedUrl = getYouTubeEmbedUrl(item.url);
-      modalVideo.innerHTML = `<iframe src="${embedUrl}" frameborder="0" allowfullscreen></iframe>`;
+      modalVideo.innerHTML = `<iframe src="${embedUrl}" allowfullscreen></iframe>`;
     } else {
-      // For other video types, show a clearly labelled link to the video
+      // Non-YouTube: show a clearly labelled external link
       modalVideo.innerHTML = `<a href="${item.url}" target="_blank" rel="noopener noreferrer" class="video-link">▶ Watch Video</a>`;
     }
   } else {
-    // Show the high-res image (hdurl) if available, otherwise the standard url
+    // Use high-res hdurl when available, fall back to standard url
     modalImage.src = item.hdurl || item.url;
     modalImage.alt = item.title;
     modalImage.classList.remove('hidden');
@@ -159,21 +200,19 @@ function openModal(item) {
     modalVideo.innerHTML = '';
   }
 
-  // Make the modal visible
   modal.classList.remove('hidden');
 }
 
-// Close the modal when the × button is clicked
+// Close modal via the × button
 modalClose.addEventListener('click', () => {
   modal.classList.add('hidden');
-  modalVideo.innerHTML = ''; // Stop any video that is currently playing
+  modalVideo.innerHTML = ''; // stop any playing video
 });
 
-// Close the modal when the user clicks on the dark overlay outside the content
+// Close modal by clicking the dark overlay (outside the content card)
 modal.addEventListener('click', (e) => {
   if (e.target === modal) {
     modal.classList.add('hidden');
-    modalVideo.innerHTML = ''; // Stop any video that is currently playing
+    modalVideo.innerHTML = ''; // stop any playing video
   }
 });
-
