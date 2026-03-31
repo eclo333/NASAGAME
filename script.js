@@ -20,7 +20,19 @@ const spaceFacts = [
 
 // Pick a random fact from the array and display it on the page
 const randomFact = spaceFacts[Math.floor(Math.random() * spaceFacts.length)];
-document.getElementById('fact-text').textContent = randomFact;
+const factText = document.getElementById('fact-text');
+
+// Defensive render: if DOM timing changes in deployment, still set the fact
+if (factText) {
+  factText.textContent = randomFact;
+} else {
+  document.addEventListener('DOMContentLoaded', () => {
+    const delayedFactText = document.getElementById('fact-text');
+    if (delayedFactText) {
+      delayedFactText.textContent = randomFact;
+    }
+  });
+}
 
 // ── Element References ────────────────────────────────────────────────────────
 const fetchBtn         = document.getElementById('fetchBtn');
